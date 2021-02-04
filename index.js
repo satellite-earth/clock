@@ -36,19 +36,23 @@ class Clock {
 	}
 
 	// Get hash, number, and timestamp for every block in range
-	async synchronize (web3, options = {}) {
-
-		if (!web3) { // To read blockchain data
-			throw Error('Must provide async functions to getBlockNumber and getBlock');
-		}
+	async synchronize (eth, options = {}) {
 
 		const newBlocks = {};
 		let toBlock = options.toBlock;
 		let fromBlock;
 
+		// Assume all blocks in range will be synced
+		let inRange = () => { return true; }
+
 		// Start from specified block, or latest
 		if (typeof toBlock === 'undefined') {
-			toBlock = await web3.eth.getBlockNumber();
+
+			if (!eth || !eth.getBlockNumber) {
+				throw Error('Missing eth interface function \'getBlockNumber\'');
+			}
+
+			toBlock = await eth.getBlockNumber();
 		}
 
 		if (this.initialized) { // Already synchronized
@@ -68,11 +72,35 @@ class Clock {
 			fromBlock = typeof options.startBlock === 'undefined' ? toBlock : options.startBlock;
 		}
 
+		// If a specified subset of blocks to sync is provided
+		if (typeof options.subset !== 'undefined') {
+
+			// Return immediately if there are none
+			if (options.subset.length === 0) {
+				return newBlocks;
+			}
+
+			// Only sync blocks in subset range
+			inRange = (n) => { return options.subset.indexOf(n) !== -1 };
+
+			// Start iterating from minimum value of subset
+			fromBlock = options.subset.sort((a, b) => { return a - b; })[0];
+		}
+
 		// Fetch block data sequentially for each block in range
 		for (let n = fromBlock; n <= toBlock; n++) {
 
+			// Skip blocks that are already synced or are out of range
+			if (typeof this.blocks.ordinal[n] !== 'undefined' || !inRange(n)) {
+				continue;
+			}
+
+			if (!eth || !eth.getBlock) {
+				throw Error('Missing eth interface function \'getBlock\'');
+			}
+
 			// Get the block
-			const block = await web3.eth.getBlock(n);
+			const block = await eth.getBlock(n);
 
 			if (!block) {
 				console.log(`Failed to get block number ${n}, stop synchronization`);
@@ -86,10 +114,9 @@ class Clock {
 			newBlocks[block.number] = block;
 
 			// Report synchronization progress
-			const remaining = toBlock - block.number;
+			//const remaining = toBlock - block.number;
 			const iso = (new Date(block.timestamp * 1000)).toISOString();
-			console.log(`Synchronized block ${block.number} @ ${iso}${remaining > 0 ? ` (${remaining} remaining)` : '' }`);
-		
+			console.log(`Synchronized block ${block.number} @ ${iso}`);
 		}
 
 		return newBlocks; // Return new block data
